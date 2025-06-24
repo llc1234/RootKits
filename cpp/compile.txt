@@ -1,7 +1,4 @@
 // Windows
-g++ server.cpp -o server.exe -lws2_32
-g++ client.cpp -o client -lws2_32
+g++ -o rootkit.exe rootkit_windows.cpp -static -O2 -lshlwapi -lwtsapi32
 
 // linux
-g++ server.cpp -o server -lpthread
-g++ client.cpp -o client -lpthread

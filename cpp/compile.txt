@@ -1,0 +1,5 @@
+// Windows
+g++ server.cpp -o server.exe -lws2_32
+g++ client.cpp -o client -lws2_32
+
+// linux

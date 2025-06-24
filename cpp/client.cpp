@@ -24,6 +24,7 @@
     #include <climits>
     #include <pwd.h>
     #include <unistd.h>
+    #include <sys/utsname.h>
     typedef int sock_t;
     #define CLOSE_SOCKET close
     #define INVALID_SOCKET -1
@@ -32,7 +33,7 @@
 
 const int PORT = 8080;
 const int BUFFER_SIZE = 4096;
-const std::string VERSION = "1.0";
+const std::string CLIENT_VERSION = "1.0";
 
 bool send_all(sock_t sock, const char* buf, size_t len) {
     while (len > 0) {
@@ -242,6 +243,23 @@ int main() {
         return 1;
     }
     if (!send_all(sock, current_dir.c_str(), current_dir.size())) {
+        CLOSE_SOCKET(sock);
+        #ifdef _WIN32
+            WSACleanup();
+        #endif
+        return 1;
+    }
+
+    // Send client version
+    uint32_t version_len = htonl(static_cast<uint32_t>(CLIENT_VERSION.size()));
+    if (!send_all(sock, reinterpret_cast<const char*>(&version_len), sizeof(version_len))) {
+        CLOSE_SOCKET(sock);
+        #ifdef _WIN32
+            WSACleanup();
+        #endif
+        return 1;
+    }
+    if (!send_all(sock, CLIENT_VERSION.c_str(), CLIENT_VERSION.size())) {
         CLOSE_SOCKET(sock);
         #ifdef _WIN32
             WSACleanup();

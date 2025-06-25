@@ -2,3 +2,4 @@
 g++ -o rootkit.exe rootkit_windows.cpp -static -O2 -lshlwapi -lwtsapi32
 
 // linux
+g++ linux_app.cpp -o MyCustomApp -std=c++11

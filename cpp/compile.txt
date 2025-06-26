@@ -1,5 +1,5 @@
 // Windows
-g++ rootkit.cpp -o rootkit.exe -lws2_32 -s -ffunction-sections -fdata-sections -Wno-write-strings -fpermissive
+g++ rootkit_windows.cpp -o rootkit_windows -lws2_32 -s -ffunction-sections -fdata-sections -Wno-write-strings -fpermissive
 
 // linux
 g++ linux_app.cpp -o MyCustomApp -std=c++11

